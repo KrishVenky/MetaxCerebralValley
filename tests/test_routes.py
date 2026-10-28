@@ -72,7 +72,7 @@ def test_route_no_pipe_returns_none():
 
 
 def test_route_none_when_pipe_does_not_join_the_nodes():
-    # A pipe exists in the image, but it runs elsewhere: neither node touches it.
+    # Added by hand (not Muse Code). A pipe exists in the image, but it runs elsewhere: neither node touches it.
     img = np.full((200, 200, 3), 255, np.uint8)
     cv2.line(img, (20, 170), (180, 170), (0, 0, 0), thickness=5, lineType=cv2.LINE_8)
     graph = make_graph((10, 20, 30, 40), (170, 20, 190, 40))
