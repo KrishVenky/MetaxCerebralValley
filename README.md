@@ -80,6 +80,13 @@ symbol; it fixed two answers and broke two valve types, so it is off by default.
 | Muse Spark 1.3 (Meta Model API) | vessel and exchanger boxes, non-drawing regions, finding and reading the legend |
 | Muse Spark Open (Baseten) | symbol typing against the legend, tag reading and re-reading |
 
+**Muse Code** (Meta's coding agent CLI, model `muse-spark-1.3-contributor`) wrote the first draft of
+`tests/test_codes.py` and `tests/test_routes.py`, the unit tests for the legend-grammar and
+pipe-routing modules. It ran headless in a scratch copy of `lazarus/` with shell and web tools
+disabled, so it could read and write files but not run anything. We ran pytest, and all of its tests
+passed against the unmodified code. We added one test of our own (a pipe that does not join the two
+nodes), noted in `tests/test_routes.py`. The rest of the project was written with Claude Code.
+
 Meta API spend for the whole project so far: about $8 of the $150 credit. Every call is cached on
 disk and logged to a spend ledger, with a hard stop (`SPEND_GUARD_USD`).
 
@@ -111,7 +118,7 @@ scripts/            benchmarks and experiments (run_sheet, real_test, connection
 demo/               static page (vanilla JS + SVG) over exported graphs
 data/labels/        hand-labelled connections used by connection_eval
 data/real/          public-domain real test scans and their sources
-tests/              simulation tests
+tests/              simulation tests; legend-grammar and pipe-route tests (drafted by Muse Code)
 ```
 
 ## Data and licences
