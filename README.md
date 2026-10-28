@@ -123,6 +123,8 @@ tests/              simulation tests; legend-grammar and pipe-route tests (draft
 
 ## Data and licences
 
+- **Code** (`lazarus/`, `scripts/`, `demo/`, `tests/`) is MIT licensed, see `LICENSE`. The licence
+  covers our code only; the data below keeps its own terms.
 - **Digitize-PID** (Paliwal et al., 2021, arXiv:2109.03794), via `hamzas/digitize-pid-symbols` on
   Hugging Face. It declares no licence, so its images are fetched by `scripts/fetch_data.py` and
   not committed. The hand-labelled connections in `data/labels/` are our own annotations.
