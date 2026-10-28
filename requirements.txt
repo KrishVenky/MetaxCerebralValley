@@ -1,0 +1,9 @@
+openai>=1.50
+python-dotenv>=1.0
+numpy>=1.26
+scipy>=1.11
+scikit-image>=0.22
+opencv-python-headless>=4.9
+pillow>=10.0
+huggingface-hub>=0.24
+pytest>=8.0

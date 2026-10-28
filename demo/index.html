@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drawing Lazarus</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">DL</div>
+    <div><h1>Drawing Lazarus</h1><p>Scanned P&amp;ID &rarr; verified connectivity graph &rarr; isolation simulation</p></div>
+  </div>
+  <label class="pick">Drawing <select id="drawing"></select></label>
+</header>
+
+<main>
+  <section class="stage">
+    <div class="toolbar">
+      <span class="hint"><b>Click</b> a valve to close / open it &middot; <b>click</b> any other symbol (or <b>shift+click</b> a valve) to set the source &middot; scroll to zoom, drag to pan</span>
+      <div class="toggles">
+        <label><input type="checkbox" id="t-edges" checked> Pipes</label>
+        <label><input type="checkbox" id="t-junc" checked> Junctions</label>
+        <label><input type="checkbox" id="t-find" checked> Needs human</label>
+        <label><input type="checkbox" id="t-open"> Open ends</label>
+        <label><input type="checkbox" id="t-region" checked> Excluded areas</label>
+        <button id="reset-view" type="button">Reset view</button>
+      </div>
+    </div>
+    <div class="summary" id="summary"></div>
+    <div class="canvas-wrap">
+      <svg id="svg" role="img" aria-label="P&amp;ID tile with detected symbols and connectivity"></svg>
+      <div id="tip" hidden></div>
+    </div>
+    <div class="legend" id="legend"></div>
+    <p class="note warn-note" id="note-real" hidden>Real scan, no ground truth: symbols are typed with a fixed taxonomy (no hand-built legend) and connectivity is rougher than on the benchmark sheets. Shown as it comes out of the pipeline.</p>
+    <p class="note">Connectivity / isolation analysis only &mdash; flow direction is unknown for this dataset, so this is not a hydraulic simulation.</p>
+  </section>
+
+  <aside class="panel">
+    <div class="card" id="source-card"></div>
+    <div class="stats" id="stats"></div>
+
+    <div class="card">
+      <div class="card-h"><h2>Closed valves</h2><button id="reopen" type="button" class="link">Reopen all</button></div>
+      <div id="closed" class="chips"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h2>Cut off from source</h2><span id="lost-count" class="badge"></span></div>
+      <div id="lost"></div>
+      <details id="base-wrap"><summary>Not connected to source even when all open <span id="base-count" class="badge soft"></span></summary><div id="base"></div></details>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h2>Critical valves</h2><span class="sub">symbols cut off if closed alone</span></div>
+      <div id="critical"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h2>Verifier confidence</h2><span id="clean" class="badge ok"></span></div>
+      <div id="conf"></div>
+    </div>
+
+    <div class="card" id="legend-card" hidden>
+      <details><summary>Legend read from the drawing by Muse Spark <span id="legend-n" class="badge soft"></span></summary><div id="legend-list"></div></details>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h2>Needs a human</h2><span id="find-count" class="badge warn"></span></div>
+      <div id="findings"></div>
+    </div>
+  </aside>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

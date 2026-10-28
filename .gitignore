@@ -1,0 +1,32 @@
+# secrets: never commit keys (the hackathon repo is public)
+.env
+.env.*
+!.env.example
+
+# caches, API response cache, spend ledger and run outputs (regenerate with the scripts)
+.cache/
+.pytest_cache/
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+*.log
+
+# third-party data we do not redistribute: fetch it with `python -m scripts.fetch_data`
+# (Digitize-PID declares no licence) and anything derived from its images
+data/pid_val/
+demo/data/14.jpg
+demo/data/129.jpg
+demo/data/118.jpg
+demo/data/112.jpg
+demo/data/114.jpg
+demo/data/122.jpg
+
+# CC BY-SA scan: kept out so the repo carries no share-alike obligations (see data/real/SOURCES.md)
+data/real/schema_pid_isa_s51.jpg
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
