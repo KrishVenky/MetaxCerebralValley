@@ -56,6 +56,25 @@ Two things moved the numbers most: giving SAM more than one prompt phrase when a
 (recall 54% to 78% on tiles), and reading types from a legend rather than a free taxonomy.
 Dashed signal lines are mostly not recovered yet, which is most of the gap between 92% and 72%.
 
+### Against one plain model call
+
+Same three hand-labelled tiles, scored the same way (`scripts/baseline_eval.py`). The baseline is a
+single Muse Spark call shown the tile with the **ground-truth symbols already boxed and numbered**,
+asked to list which symbols a pipe joins. Lazarus has to find the symbols itself.
+
+| Measure | One Muse Spark call (symbols given) | Lazarus (finds its own symbols) |
+|---|---|---|
+| Recall, all labelled links | 110 / 155 = 71% | 111 / 155 = 72% |
+| Recall, solid pipes | 94 / 120 = 78% | 111 / 120 = **92%** |
+| Precision | 110 / 117 = 94% | 111 / 116 = **96%** |
+| Dashed signal links recovered | 16 / 35 | 0 / 35 |
+| Output flagged for a human | none | yes, every finding is listed |
+
+The baseline is competitive on total recall because it recovers dashed lines, which Lazarus does not.
+On solid pipes Lazarus is clearly ahead, while also doing the symbol detection the baseline is handed.
+One run per sheet (the baseline is not deterministic), and the three baseline calls used 19k to 34k
+reasoning tokens each (about $0.35 for the three tiles).
+
 ### Real scans (no ground truth)
 
 Two public-domain real drawings are included in the demo, shown as the pipeline produces them: a
