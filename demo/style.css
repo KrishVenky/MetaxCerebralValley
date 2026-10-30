@@ -111,3 +111,26 @@ details { margin-top: 8px; } summary { cursor: pointer; color: var(--muted); fon
 .warn-note { color: #fcd34d; }
 .lg { display: grid; grid-template-columns: 64px 1fr; gap: 8px; font-size: 12px; padding: 2px 0; } .lg b { color: var(--text); overflow: hidden; text-overflow: ellipsis; } .lg span { color: var(--muted); }
 #legend-list { max-height: 260px; overflow: auto; margin-top: 6px; }
+
+/* dashed signal links and review */
+.sig { fill: none; stroke: #a78bfa; stroke-width: 3; stroke-dasharray: 3 6; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; opacity: .9; }
+.sig.hover { stroke: #c4b5fd; stroke-width: 3; stroke-dasharray: 2 6; opacity: .7; }
+.hide-sig .sig { display: none; }
+.edge.added { stroke-dasharray: none; stroke-width: 5; }
+.node.corrected rect.box { stroke: #fbbf24; stroke-width: 4; filter: drop-shadow(0 0 4px #fbbf24); }
+.node.pick rect.box { stroke: #fff; stroke-width: 5; animation: pickflash .9s ease-in-out infinite alternate; }
+@keyframes pickflash { to { fill: rgba(255, 255, 255, .4); } }
+.card.review { border-color: var(--amber); box-shadow: 0 0 0 1px rgba(245, 158, 11, .35); }
+.review .t { font-weight: 650; font-size: 15px; color: #fcd34d; } .review .m { color: var(--muted); font-size: 12.5px; }
+.review .acts { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.review .acts .ln { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.review .acts .ln > span { color: var(--muted); font-size: 12px; min-width: 30px; }
+.review .acts select, .review .acts input { flex: 1; min-width: 0; padding: 4px 8px; font-size: 12.5px; }
+.review .acts input { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.review .acts button { font-size: 12.5px; padding: 4px 10px; }
+button.good { background: rgba(34, 197, 94, .2); border-color: rgba(34, 197, 94, .6); color: #bbf7d0; }
+button.danger { background: rgba(239, 68, 68, .15); border-color: rgba(239, 68, 68, .5); color: #fecaca; }
+.review .pickmsg { color: #fff; background: rgba(255, 255, 255, .12); border-radius: 8px; padding: 6px 8px; font-size: 12.5px; }
+.review-bar { display: flex; gap: 8px; margin-top: 8px; } .review-bar button { font-size: 12.5px; padding: 4px 10px; } .review-bar button:disabled { opacity: .45; cursor: default; }
+.f.on { background: var(--card); outline: 1px solid var(--amber); }
+.done-row { font-size: 12.5px; color: var(--muted); padding: 3px 4px; } .done-row b { color: #86efac; font-weight: 650; }

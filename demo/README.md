@@ -13,6 +13,17 @@ What it shows, per drawing:
 - **Needs a human** lists findings a person should look at. **Open ends** (pipes that just stop or
   leave the sheet) are informational and hidden on the drawing until you tick the box.
 - the excluded areas (title block, notes) and, where the sheet has one, the legend Muse Spark read.
+- **dashed links** (purple dotted lines): instrument/signal lines the pipe tracer cannot see. The ones a
+  deterministic pixel check confirmed are drawn along the line it found; hover any symbol to see its other
+  dashed links (inferred, not confirmed). Dashed links never count as connections in the isolation
+  simulation.
+- **a human review loop**, no API needed. Click a numbered flag (or a row under *Needs a human*) to open the
+  review card: confirm the finding as drawn, change the symbol's type, fix its tag, connect it to another
+  symbol (click it on the drawing), disconnect a pipe, or remove it as not a symbol. The graph and the
+  isolation analysis update immediately, and a flag disappears when you act on it or when the verifier's own
+  rule (isolated symbol, wrong connection count, missing tag) stops holding after your edit. *Undo last
+  review* steps back; progress is kept in the browser (localStorage) and *Download corrections* saves it as
+  JSON.
 - an isolation simulation: click a valve to close it, click any other symbol (or shift+click a valve)
   to set the source; Esc reopens all valves. Isolation is connectivity analysis
   (`lazarus/simulate.py`, ported in `app.js`), not hydraulics.

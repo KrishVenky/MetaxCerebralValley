@@ -92,8 +92,10 @@ function rankValves(net, source) {
 
 /* ---------- state ---------- */
 let DATA, D, net, closed, source, autoSource, view, hotFinding = null, findFilter = null;
+let work, log = [], picking = null, sigLinked = new Set();   // work: editable copy of the graph; log: review steps (undo, persistence)
 let W = 1792, H = 1140, U = 1;   // sheet size in pixels; U scales marker sizes so they read the same on any sheet
 const nodeEls = new Map(), edgeEls = [], juncEls = new Map(), findEls = [];
+let gHover = null;
 const svg = $("svg"), wrap = svg.parentElement;
 let dragged = false;
 
@@ -111,11 +113,13 @@ async function init() {
   const want = DATA.drawings.findIndex((d) => d.name === location.hash.slice(1));
   sel.value = want >= 0 ? want : 0;
   sel.onchange = () => load(+sel.value);
-  ["edges", "junc", "find", "open", "region"].forEach((k) => ($("t-" + k).onchange = (e) => wrap.classList.toggle("hide-" + k, !e.target.checked)));
+  ["edges", "junc", "find", "sig", "open", "region"].forEach((k) => ($("t-" + k).onchange = (e) => wrap.classList.toggle("hide-" + k, !e.target.checked)));
   $("reset-view").onclick = () => flyTo({ x: 0, y: 0, w: W, h: H });
   wrap.classList.add("hide-open");
   $("reopen").onclick = () => { closed.clear(); update(); };
-  window.addEventListener("keydown", (e) => { if (e.key === "Escape") { closed.clear(); update(); } });
+  $("undo").onclick = undo;
+  $("export").onclick = exportCorrections;
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape") { if (picking) stopPicking(); else { closed.clear(); update(); } } });
   renderLegend();
   load(+sel.value);
 }
@@ -127,7 +131,10 @@ function load(i) {
   wrap.style.aspectRatio = `${W} / ${H}`;
   svg.style.setProperty("--u", U);
   location.hash = D.name;
-  net = buildNet(D.graph);
+  sigLinked = new Set((D.graph.signal_edges || []).flat());
+  log = loadLog();
+  picking = null;
+  replay();
   closed = new Set();
   autoSource = suggestSources(net)[0];
   source = autoSource;
@@ -137,13 +144,92 @@ function load(i) {
   update();
 }
 
+/* ---------- editable graph + review log ---------- */
+const logKey = () => "lazarus-review:" + D.name;
+function loadLog() {
+  try { const v = JSON.parse(localStorage.getItem(logKey()) || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+function saveLog() { try { localStorage.setItem(logKey(), JSON.stringify(log)); } catch { /* storage unavailable: review still works for this visit */ } }
+
+function pristine() {
+  return {
+    nodes: D.graph.nodes.map((n) => ({ ...n })),
+    edges: D.graph.edges.map(([a, b], i) => ({ a, b, path: (D.paths && D.paths[i]) || null })),
+  };
+}
+function applyOp(o) {
+  const n = work.nodes.find((x) => x.id === o.id);
+  const same = (e) => (e.a === o.a && e.b === o.b) || (e.a === o.b && e.b === o.a);
+  if (o.op === "link") { if (!work.edges.some(same)) work.edges.push({ a: o.a, b: o.b, path: null, added: true }); return; }
+  if (o.op === "unlink") { work.edges = work.edges.filter((e) => !same(e)); return; }
+  if (!n) return;
+  if (o.op === "kind") { n.kind = o.kind; n.name = o.name; if (o.legend_id != null) n.legend_id = o.legend_id; n.corrected = true; }
+  else if (o.op === "tag") { n.tag = o.tag; n.corrected = true; }
+  else if (o.op === "delete") {
+    work.nodes = work.nodes.filter((x) => x.id !== o.id);
+    work.edges = work.edges.filter((e) => e.a !== o.id && e.b !== o.id);
+  }
+}
+function rebuildNet() { net = buildNet({ nodes: work.nodes, edges: work.edges.map((e) => [e.a, e.b]) }); }
+function replay() {
+  work = pristine();
+  for (const step of log) step.ops.forEach(applyOp);
+  rebuildNet();
+}
+const reviewOf = (i) => log.find((s) => s.f === i);
+
+/* A finding is open until a person acts on it, or until the verifier's own rule stops holding after an edit. */
+function autoCleared(f) {
+  if (f.node < 0) return false;
+  const n = net.nodes.get(f.node);
+  if (!n) return true;
+  const deg = net.adj.get(n.id).size;
+  if (f.kind === "isolated") return deg > 0 || sigLinked.has(n.id);
+  if (f.kind === "degree") return n.kind !== "valve" || deg === 2;
+  if (f.kind === "tag_missing") return n.kind !== "instrument" || !!n.tag;
+  return false;
+}
+const isOpen = (i) => !reviewOf(i) && !autoCleared(D.findings[i]);
+const humanOpen = () => D.findings.map((f, i) => i).filter((i) => !INFO.has(D.findings[i].kind) && isOpen(i));
+
+function commit(i, action, ops = []) {
+  log.push({ f: i, action, ops });
+  ops.forEach(applyOp);
+  rebuildNet();
+  saveLog();
+  stopPicking(true);
+  hotFinding = null;
+  buildScene();
+  update();
+  const next = humanOpen()[0];          // move on to the next open finding, like a review queue
+  if (next !== undefined) focusFinding(next); else closeReview();
+}
+function undo() {
+  if (!log.length) return;
+  const last = log.pop();
+  saveLog();
+  replay();
+  buildScene();
+  update();
+  if (D.findings[last.f]) focusFinding(last.f);
+}
+function exportCorrections() {
+  const body = { drawing: D.name, reviewed: log.map((s) => ({ finding: s.f, kind: D.findings[s.f]?.kind, action: s.action, ops: s.ops })) };
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(body, null, 2)], { type: "application/json" }));
+  a.download = `${D.name}.corrections.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 /* ---------- scene ---------- */
 function buildScene() {
   svg.replaceChildren();
   nodeEls.clear(); juncEls.clear(); edgeEls.length = 0; findEls.length = 0;
   setView(view);
   el("image", { href: D.image, x: 0, y: 0, width: W, height: H }, svg);
-  const gE = el("g", {}, svg), gN = el("g", {}, svg), gF = el("g", {}, svg);
+  const gE = el("g", {}, svg), gS = el("g", {}, svg), gH = el("g", {}, svg), gN = el("g", {}, svg), gF = el("g", {}, svg);
+  gHover = gH;
 
   for (const r of [D.legend_box, ...D.excluded].filter(Boolean)) {
     const isLegend = D.legend_box && r === D.legend_box;
@@ -154,13 +240,17 @@ function buildScene() {
       t.textContent = `legend read by Muse Spark: ${D.legend.length} entries, excluded from tracing`;
     }
   }
-  D.graph.edges.forEach(([a, b], i) => {
-    if (!net.nodes.has(a) || !net.nodes.has(b)) return;
-    const path = D.paths && D.paths[i];
+  for (const { a, b, path, added } of work.edges) {
+    if (!net.nodes.has(a) || !net.nodes.has(b)) continue;
     const pts = path || [center(net.nodes.get(a)), center(net.nodes.get(b))];
-    edgeEls.push({ a, b, e: el("polyline", { points: pts.map((p) => p.join(",")).join(" "), class: "edge" }, gE) });
+    edgeEls.push({ a, b, added, e: el("polyline", { points: pts.map((p) => p.join(",")).join(" "), class: "edge" }, gE) });
+  }
+  (D.graph.signal_verified || []).forEach(([a, b], k) => {   // links a deterministic pixel check confirmed, drawn along the line it found
+    if (!net.nodes.has(a) || !net.nodes.has(b)) return;
+    const pts = (D.graph.signal_paths && D.graph.signal_paths[k]) || [center(net.nodes.get(a)), center(net.nodes.get(b))];
+    el("polyline", { points: pts.map((p) => p.join(",")).join(" "), class: "sig" }, gS);
   });
-  for (const n of D.graph.nodes) {
+  for (const n of work.nodes) {
     if (n.kind === "junction") {
       const [cx, cy] = center(n);
       juncEls.set(n.id, el("circle", { cx, cy, r: 7 * U, class: "junc" }, gE));
@@ -175,9 +265,11 @@ function buildScene() {
     if (n.source === "reinspect") g.classList.add("recovered");
     g.addEventListener("click", (ev) => { if (!dragged) onNode(n, ev.shiftKey); });
     g.addEventListener("mousemove", (ev) => showTip(n, ev));
-    g.addEventListener("mouseleave", () => ($("tip").hidden = true));
+    g.addEventListener("mouseenter", () => showInferred(n.id));
+    g.addEventListener("mouseleave", () => { $("tip").hidden = true; gHover.replaceChildren(); });
   }
   D.findings.forEach((f, i) => {
+    if (!isOpen(i)) { findEls.push(null); return; }             // reviewed or cleared: no flag on the drawing
     const n = net.nodes.get(f.node);
     const [x, y] = n && f.node >= 0 && n.kind !== "junction" ? [n.box[2], n.box[1]] : f.pos;
     const info = INFO.has(f.kind);
@@ -204,16 +296,17 @@ function update() {
   const iso = isolate(net, closed, source);
   const state = (i) => (iso.now.has(i) ? "reach" : iso.lost.has(i) ? "lost" : "base");
 
-  for (const { a, b, e } of edgeEls) e.setAttribute("class", "edge " + (iso.now.has(a) && iso.now.has(b) ? "reach" : iso.lost.has(a) || iso.lost.has(b) ? "lost" : "base"));
+  for (const { a, b, added, e } of edgeEls) e.setAttribute("class", "edge " + (iso.now.has(a) && iso.now.has(b) ? "reach" : iso.lost.has(a) || iso.lost.has(b) ? "lost" : "base") + (added ? " added" : ""));
   for (const [i, c] of juncEls) c.setAttribute("class", "junc " + state(i));
   for (const [i, { g, t }] of nodeEls) {
     const n = net.nodes.get(i), st = state(i), isClosed = iso.shut.has(i);
-    g.setAttribute("class", `node ${n.kind} ${st}${isClosed ? " closed" : ""}${i === source ? " source" : ""}${i === hotFinding ? " flash" : ""}${n.source === "reinspect" ? " recovered" : ""}`);
+    g.setAttribute("class", `node ${n.kind} ${st}${isClosed ? " closed" : ""}${i === source ? " source" : ""}${i === hotFinding ? " flash" : ""}${n.source === "reinspect" ? " recovered" : ""}${n.corrected ? " corrected" : ""}${picking && picking.from === i ? " pick" : ""}`);
     t.textContent = i === source ? "SOURCE" : isClosed ? "CLOSED" : "";
     t.setAttribute("class", "badge-t " + (i === source ? "src" : "cl"));
   }
-  findEls.forEach((g, i) => g.classList.toggle("hot", i === hotFinding));
+  findEls.forEach((g, i) => g && g.classList.toggle("hot", i === hotFinding));
   renderPanel(iso);
+  renderReview();
 }
 
 function row(n, extra = "") {
@@ -262,10 +355,11 @@ function renderPanel(iso) {
 
 function renderConfidence() {
   const counts = {};
-  D.findings.forEach((f) => (counts[f.kind] = (counts[f.kind] || 0) + 1));
-  const human = D.findings.filter((f) => !INFO.has(f.kind)), openEnds = D.findings.length - human.length;
-  const total = D.findings.length, max = Math.max(1, ...Object.values(counts));
-  const real = D.graph.nodes.filter((n) => n.kind !== "junction");
+  const open = D.findings.map((f, i) => i).filter(isOpen);
+  open.forEach((i) => (counts[D.findings[i].kind] = (counts[D.findings[i].kind] || 0) + 1));
+  const human = open.filter((i) => !INFO.has(D.findings[i].kind)).map((i) => D.findings[i]), openEnds = open.length - human.length;
+  const total = open.length, max = Math.max(1, ...Object.values(counts));
+  const real = work.nodes.filter((n) => n.kind !== "junction");
   const flagged = new Set(human.filter((f) => f.node >= 0).map((f) => f.node));
   const clean = real.filter((n) => !flagged.has(n.id)).length;
   const mean = real.reduce((a, n) => a + (n.confidence || 0), 0) / Math.max(1, real.length);
@@ -273,22 +367,32 @@ function renderConfidence() {
   $("conf").innerHTML = Object.keys(FINDING).filter((k) => counts[k]).map((k) =>
     `<div class="bar${findFilter === k ? " on" : ""}" data-k="${k}"><span>${FINDING[k]}</span><div class="tr"><div class="fl" style="width:${(counts[k] / max) * 100}%"></div></div><span class="c">${counts[k]}</span></div>`).join("") +
     (total ? "" : `<div class="empty">Verifier found nothing to flag.</div>`) +
-    `<div class="kv"><span><b>${real.length}</b> symbols</span><span><b>${D.graph.edges.length}</b> connections</span><span>mean detection conf. <b>${(mean * 100).toFixed(0)}%</b></span></div>`;
+    `<div class="kv"><span><b>${real.length}</b> symbols</span><span><b>${work.edges.length}</b> connections</span><span>mean detection conf. <b>${(mean * 100).toFixed(0)}%</b></span></div>`;
   $("conf").querySelectorAll(".bar").forEach((b) => (b.onclick = () => { findFilter = findFilter === b.dataset.k ? null : b.dataset.k; renderConfidence(); }));
 
-  const shown = D.findings.map((f, i) => [f, i]).filter(([f]) => findFilter ? f.kind === findFilter : !INFO.has(f.kind));
-  $("find-count").textContent = findFilter ? `${shown.length} of ${total}` : `${human.length} + ${openEnds} open ends`;
+  const shown = D.findings.map((f, i) => [f, i]).filter(([f, i]) => isOpen(i) && (findFilter ? f.kind === findFilter : !INFO.has(f.kind)));
+  $("find-count").textContent = findFilter ? `${shown.length} of ${total}` : `${human.length} left + ${openEnds} open ends`;
   $("findings").innerHTML = shown.length ? shown.map(([f, i]) =>
-    `<div class="f" tabindex="0" data-f="${i}"><div class="n">${i + 1}</div><div><div class="k">${FINDING[f.kind] || f.kind}</div><div class="msg">${esc(f.message)}</div></div></div>`).join("")
-    : `<div class="empty">Nothing needs a human on this drawing${openEnds ? "; open pipe ends are in the bars above" : ""}.</div>`;
+    `<div class="f${i === hotFinding ? " on" : ""}" tabindex="0" data-f="${i}"><div class="n">${i + 1}</div><div><div class="k">${FINDING[f.kind] || f.kind}</div><div class="msg">${esc(f.message)}</div></div></div>`).join("")
+    : `<div class="empty">${log.length ? "Every flag has been reviewed." : "Nothing needs a human on this drawing"}${openEnds ? "; open pipe ends are in the bars above" : ""}.</div>`;
+  const done = D.findings.map((f, i) => [f, i]).filter(([f, i]) => !isOpen(i) && !INFO.has(f.kind));
+  $("done-wrap").hidden = !done.length;
+  $("done-count").textContent = done.length;
+  $("done").innerHTML = done.map(([f, i]) => {
+    const r = reviewOf(i);
+    return `<div class="done-row"><b>${i + 1}</b> ${FINDING[f.kind] || f.kind} — ${r ? esc(r.action) : "cleared: the verifier rule no longer holds after your edit"}</div>`;
+  }).join("");
+  $("undo").disabled = $("export").disabled = !log.length;
   renderSummary(human.length, openEnds);
   $("findings").querySelectorAll(".f").forEach((r) => { r.onclick = () => focusFinding(+r.dataset.f); r.onkeydown = (e) => e.key === "Enter" && r.click(); });
 }
 
 function renderSummary(human, openEnds) {
-  const real = D.graph.nodes.filter((n) => n.kind !== "junction"), rec = real.filter((n) => n.source === "reinspect").length;
+  const real = work.nodes.filter((n) => n.kind !== "junction"), rec = real.filter((n) => n.source === "reinspect").length;
+  const sig = D.graph.signal_edges || [], ver = D.graph.signal_verified || [];
   $("summary").innerHTML = [
-    [real.length, "symbols found"], [D.graph.edges.length, "pipe connections"],
+    [real.length, "symbols found"], [work.edges.length, "pipe connections"],
+    ...(sig.length ? [[sig.length, `dashed-line links (${ver.length} pixel-verified)`]] : []),
     [rec, "recovered by re-inspection"], [human, "need a human"], [openEnds, "open pipe ends"],
   ].map(([n, l]) => `<span><b>${n}</b> ${l}</span>`).join("");
   $("note-real").hidden = !D.taxonomy;
@@ -300,6 +404,10 @@ function renderSummary(human, openEnds) {
 /* ---------- interaction ---------- */
 function toggleValve(i) { closed.has(i) ? closed.delete(i) : closed.add(i); update(); }
 function onNode(n, shift) {
+  if (picking) {
+    if (n.id !== picking.from) commit(picking.f, `connected #${picking.from} to #${n.id}`, [{ op: "link", a: picking.from, b: n.id }]);
+    return;
+  }
   if (n.kind === "valve" && !shift) toggleValve(n.id);
   else if (n.id !== source) { source = n.id; update(); }
 }
@@ -308,9 +416,11 @@ function showTip(n, ev, f) {
   const tip = $("tip"), r = wrap.getBoundingClientRect();
   if (n) {
     const iso = isolate(net, closed, source), st = n.id === source ? "source" : iso.now.has(n.id) ? "reachable" : iso.lost.has(n.id) ? "cut off by closed valve" : "not connected to source";
-    const fl = D.findings.filter((x) => x.node === n.id).map((x) => `<div class="w">⚠ ${esc(FINDING[x.kind] || x.kind)}</div>`).join("");
+    const fl = D.findings.filter((x, j) => x.node === n.id && isOpen(j)).map((x) => `<div class="w">⚠ ${esc(FINDING[x.kind] || x.kind)}</div>`).join("");
+    const sg = (D.graph.signal_edges || []).filter((e) => e.includes(n.id)), sv = (D.graph.signal_verified || []).filter((e) => e.includes(n.id));
+    const sgl = sg.length ? `<div class="m">dashed-line links: ${sg.length} (${sv.length} pixel-verified)</div>` : "";
     tip.innerHTML = `<b>${esc(n.tag || n.name.split(",")[0])}</b> <span class="m">#${n.id} · ${n.kind}</span><div class="m">${esc(n.name)}</div>
-      <div>confidence ${(n.confidence * 100).toFixed(0)}% · ${esc(n.source || "")} · ${iso.shut.has(n.id) ? "CLOSED" : n.kind === "valve" ? "open" : ""}</div><div>${st}</div>${n.source === "reinspect" ? `<div class="g">&#10003; found by re-inspection after the first pass missed it</div>` : ""}${fl}
+      <div>confidence ${(n.confidence * 100).toFixed(0)}% · ${esc(n.source || "")} · ${iso.shut.has(n.id) ? "CLOSED" : n.kind === "valve" ? "open" : ""}</div><div>${st}</div>${sgl}${n.source === "reinspect" ? `<div class="g">&#10003; found by re-inspection after the first pass missed it</div>` : ""}${fl}
       <div class="m">${n.kind === "valve" ? "click: open/close · shift+click: set source" : "click: set as source"}</div>`;
   } else tip.innerHTML = `<b>${esc(FINDING[f.kind] || f.kind)}</b><div class="m">${esc(f.message)}</div><div class="m">click to jump</div>`;
   tip.hidden = false;
@@ -334,7 +444,69 @@ function focusFinding(i) {
   const w = W / 2.2;
   flyTo({ x: x - w / 2, y: y - (w * H) / W / 2, w, h: (w * H) / W });
   update();
-  document.querySelectorAll(".f").forEach((r) => r.style.background = +r.dataset.f === i ? "var(--card)" : "");
+}
+
+/* ---------- review card ---------- */
+let reviewKey = "";
+function stopPicking(silent) { picking = null; reviewKey = ""; if (!silent) update(); }
+function closeReview() { hotFinding = null; reviewKey = ""; update(); }
+function showInferred(id) {
+  gHover.replaceChildren();
+  for (const [a, b] of D.graph.signal_edges || []) {
+    if ((a !== id && b !== id) || !net.nodes.has(a) || !net.nodes.has(b)) continue;
+    el("polyline", { points: [center(net.nodes.get(a)), center(net.nodes.get(b))].map((p) => p.join(",")).join(" "), class: "sig hover" }, gHover);
+  }
+}
+
+function renderReview() {
+  const card = $("review-card"), i = hotFinding;
+  if (i === null || !D.findings[i] || !isOpen(i)) { card.hidden = true; reviewKey = ""; return; }
+  const f = D.findings[i], n = f.node >= 0 ? net.nodes.get(f.node) : null, isSym = !!n && n.kind !== "junction";
+  const key = [i, picking ? picking.from : "", n && n.kind, n && n.tag, n ? [...net.adj.get(n.id)].join() : ""].join("|");
+  card.hidden = false;
+  if (key === reviewKey) return;
+  reviewKey = key;
+  let h = `<div class="card-h"><h2>Review flag ${i + 1}</h2><button type="button" class="link" id="rv-close">close</button></div>
+    <div class="t">${esc(FINDING[f.kind] || f.kind)}</div><div class="m">${esc(f.message)}</div>`;
+  if (isSym) h += `<div class="m">symbol #${n.id} · ${esc(n.tag || "no tag")} · ${esc(n.name)}</div>`;
+  h += `<div class="acts">`;
+  if (picking) {
+    h += `<div class="pickmsg">Click the symbol on the drawing that #${picking.from} connects to. Esc cancels.</div><button type="button" id="rv-cancel">Cancel</button>`;
+  } else {
+    h += `<button type="button" class="good" id="rv-ok">${INFO.has(f.kind) ? "Dismiss: the pipe really ends here" : "Looks right, confirm"}</button>`;
+    if (isSym) {
+      h += `<div class="ln"><span>Type</span><select id="rv-kind">${Object.entries(KINDS).filter(([k]) => k !== "unknown").map(([k, v]) => `<option value="${k}"${k === n.kind ? " selected" : ""}>${v}</option>`).join("")}</select>
+        ${D.taxonomy ? "" : `<select id="rv-name"></select>`}<button type="button" id="rv-type">Apply</button></div>
+        <div class="ln"><span>Tag</span><input id="rv-tag" value="${esc(n.tag || "")}" placeholder="e.g. TI 255"><button type="button" id="rv-tagb">Apply</button></div>
+        <div class="ln"><span>Pipe</span><button type="button" id="rv-connect">Connect to…</button>
+          ${[...net.adj.get(n.id)].map((v) => { const m = net.nodes.get(v); return `<button type="button" data-unlink="${v}">Disconnect ${m.kind === "junction" ? "junction" : "#" + v}</button>`; }).join("")}</div>
+        <button type="button" class="danger" id="rv-del">Not a symbol: remove it</button>`;
+    }
+  }
+  card.innerHTML = h + `</div>`;
+  const on = (id, fn) => { const e = card.querySelector("#" + id); if (e) e.onclick = fn; };
+  on("rv-close", closeReview);
+  on("rv-cancel", () => stopPicking());
+  on("rv-ok", () => commit(i, INFO.has(f.kind) ? "dismissed" : "confirmed as drawn"));
+  if (isSym && !picking) {
+    const kindSel = card.querySelector("#rv-kind"), nameSel = card.querySelector("#rv-name");
+    const fillNames = () => {
+      if (!nameSel) return;
+      const opts = Object.entries(DATA.legend).filter(([, v]) => v.kind === kindSel.value);
+      nameSel.innerHTML = opts.map(([id, v]) => `<option value="${id}"${+id === n.legend_id ? " selected" : ""}>${esc(v.name.replace(/^[^,]*,\s*/, ""))}</option>`).join("") || `<option value="">(no legend entry)</option>`;
+    };
+    kindSel.onchange = fillNames;
+    fillNames();
+    on("rv-type", () => {
+      const lid = nameSel && nameSel.value !== "" ? +nameSel.value : null;
+      const name = lid !== null ? DATA.legend[lid].name : KINDS[kindSel.value];
+      commit(i, `retyped as ${kindSel.value}`, [{ op: "kind", id: n.id, kind: kindSel.value, name, legend_id: lid }]);
+    });
+    on("rv-tagb", () => commit(i, `tag set to "${card.querySelector("#rv-tag").value.trim()}"`, [{ op: "tag", id: n.id, tag: card.querySelector("#rv-tag").value.trim() }]));
+    on("rv-connect", () => { picking = { from: n.id, f: i }; reviewKey = ""; update(); });
+    on("rv-del", () => commit(i, "removed: not a symbol", [{ op: "delete", id: n.id }]));
+    card.querySelectorAll("[data-unlink]").forEach((b) => (b.onclick = () => commit(i, `disconnected #${n.id} from #${b.dataset.unlink}`, [{ op: "unlink", a: n.id, b: +b.dataset.unlink }])));
+  }
 }
 
 /* ---------- viewBox zoom / pan ---------- */

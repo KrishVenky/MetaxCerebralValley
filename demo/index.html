@@ -18,11 +18,12 @@
 <main>
   <section class="stage">
     <div class="toolbar">
-      <span class="hint"><b>Click</b> a valve to close / open it &middot; <b>click</b> any other symbol (or <b>shift+click</b> a valve) to set the source &middot; scroll to zoom, drag to pan</span>
+      <span class="hint"><b>Click</b> a valve to close / open it &middot; <b>click</b> any other symbol (or <b>shift+click</b> a valve) to set the source &middot; <b>click a numbered flag</b> to review it &middot; scroll to zoom, drag to pan</span>
       <div class="toggles">
         <label><input type="checkbox" id="t-edges" checked> Pipes</label>
         <label><input type="checkbox" id="t-junc" checked> Junctions</label>
         <label><input type="checkbox" id="t-find" checked> Needs human</label>
+        <label><input type="checkbox" id="t-sig" checked> Dashed links</label>
         <label><input type="checkbox" id="t-open"> Open ends</label>
         <label><input type="checkbox" id="t-region" checked> Excluded areas</label>
         <button id="reset-view" type="button">Reset view</button>
@@ -39,6 +40,7 @@
   </section>
 
   <aside class="panel">
+    <div class="card review" id="review-card" hidden></div>
     <div class="card" id="source-card"></div>
     <div class="stats" id="stats"></div>
 
@@ -70,6 +72,11 @@
     <div class="card">
       <div class="card-h"><h2>Needs a human</h2><span id="find-count" class="badge warn"></span></div>
       <div id="findings"></div>
+      <div class="review-bar">
+        <button id="undo" type="button" disabled>Undo last review</button>
+        <button id="export" type="button" disabled>Download corrections</button>
+      </div>
+      <details id="done-wrap" hidden><summary>Reviewed <span id="done-count" class="badge soft"></span></summary><div id="done"></div></details>
     </div>
   </aside>
 </main>
