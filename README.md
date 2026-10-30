@@ -27,6 +27,11 @@ whatever is still doubtful is handed to a human instead of being guessed.
    vocabulary the legend defines (instrument codes, valve names).
 4. **Trace pipes.** Classical vision: erase symbols, skeletonise the line work, flood from each
    symbol, find junctions. Output is a graph of symbols, junctions and pipe edges.
+   A second trace closes gaps along the horizontal and vertical axes, which turns a dashed line into
+   one component; symbol pairs only this trace joins are kept as **dashed links**, separate from the
+   pipe edges (a signal line is not a process line, so isolation analysis never crosses one). Each is
+   then checked against the pixels by a deterministic checker (drafted by Muse Code); the ones it
+   confirms are marked pixel-verified, the rest stay "inferred".
 5. **Verify.** No model in the loop. Dangling pipe ends, isolated symbols, valves with the wrong
    number of connections, tags that are not codes the legend defines, tags that disagree with their
    type, low-confidence classifications.
@@ -48,13 +53,19 @@ of 7168 x 4561 px:
 | Symbols found | 684 / 812 = **84%** recall |
 | Detection precision | 684 / 719 = **95%** |
 | Legend type exactly right (of found) | 641 / 684 = **94%** |
-| Pipe links recovered, solid pipes (3 hand-labelled sheets) | 111 / 120 = **92%** |
-| Pipe links recovered, all labelled links | 111 / 155 = 72% (85% when both end symbols were detected) |
-| Link precision | 111 / 116 = **96%** |
+| Links recovered, solid pipes (3 hand-labelled sheets) | 111 / 120 = **92%** |
+| Links recovered, all labelled links (solid and dashed) | 130 / 155 = **84%** (100% when both end symbols were detected) |
+| Link precision, all links | 130 / 144 = **90%** (solid pipes alone: 111 / 116 = 96%) |
 
-Two things moved the numbers most: giving SAM more than one prompt phrase when a tile is sparse
-(recall 54% to 78% on tiles), and reading types from a legend rather than a free taxonomy.
-Dashed signal lines are mostly not recovered yet, which is most of the gap between 92% and 72%.
+Three things moved the numbers most: giving SAM more than one prompt phrase when a tile is sparse
+(recall 54% to 78% on tiles), reading types from a legend rather than a free taxonomy, and the
+gap-closing second trace for dashed lines (all-link recall 72% to 84%, link precision 96% to 90%; the
+solid-pipe result is unchanged because the second trace is separate). Of the 35 labelled links that
+involve a dashed line, 19 are recovered. The dashed pass found 28 links on these tiles: 19 right, 9
+wrong (mostly pairs joined only through a crossing of unrelated lines). The checker confirms 7 of
+them, and all 7 are right; the other 21 are shown as inferred. The 21 px gap size was tuned on this
+dataset's dash pitch (21 and 24 give the same recall, 36 drops precision to 63%), so it may not carry
+over to other drawings.
 
 ### Against one plain model call
 
@@ -64,14 +75,16 @@ asked to list which symbols a pipe joins. Lazarus has to find the symbols itself
 
 | Measure | One Muse Spark call (symbols given) | Lazarus (finds its own symbols) |
 |---|---|---|
-| Recall, all labelled links | 110 / 155 = 71% | 111 / 155 = 72% |
+| Recall, all labelled links | 110 / 155 = 71% | 130 / 155 = **84%** |
 | Recall, solid pipes | 94 / 120 = 78% | 111 / 120 = **92%** |
-| Precision | 110 / 117 = 94% | 111 / 116 = **96%** |
-| Dashed signal links recovered | 16 / 35 | 0 / 35 |
+| Precision, all links | 110 / 117 = **94%** | 130 / 144 = 90% |
+| Dashed links recovered | 16 / 35 | 19 / 35 |
 | Output flagged for a human | none | yes, every finding is listed |
 
-The baseline is competitive on total recall because it recovers dashed lines, which Lazarus does not.
-On solid pipes Lazarus is clearly ahead, while also doing the symbol detection the baseline is handed.
+Lazarus is ahead on recall, on solid pipes and (narrowly) on dashed links, while also doing the symbol
+detection the baseline is handed; the plain call is a little more precise. When we first measured
+this, Lazarus recovered none of the dashed links (72% against 71%); the gap-closing pass is what
+changed that.
 One run per sheet (the baseline is not deterministic), and the three baseline calls used 19k to 34k
 reasoning tokens each (about $0.35 for the three tiles).
 
@@ -84,6 +97,16 @@ entries and excluded from tracing). **Connectivity on dense hand-drawn scans is 
 yet**: most small in-line valves are missed and the plant scan still has many spurious junctions.
 We measured these changes on the ISO render: 3x upscaling raised symbols found from 23 to 33, and
 Spark-found vessel boxes cut false junctions from 34 to 14.
+
+Two things we tried for real scans and did not ship. (1) The dashed-link pass is switched off on them:
+on the plant scan it returned 1,132 links for 135 symbols (the benchmark gives about one per symbol),
+because text and hatching merge into the line work once gaps are closed. (2) Small in-line valves are
+missed on both scans (on the ISO render, V-102, V-105, V-109 and the check valves) and re-inspection never
+looks for them, since a valve on a continuous pipe leaves no dangling end. SAM 3.1 returns nothing for
+"valve" prompts on that render, Muse Spark finds the valves but its boxes are 70 to 100 px off a symbol
+that is 40 by 70 px, and a classical candidate finder (compact ink on a pipe that continues both sides)
+found them together with about a dozen signal-line arrowheads that the classifier types as valves at the
+same confidence (0.55 to 0.78), so the output would have been noise for a reviewer. Still open.
 
 Legend-aware classification on the plant scan: instrument tags that parse as legend codes went from
 36 of 97 to 36 of 37, and 59 circles holding a letter and number (reference markers, not
@@ -100,11 +123,16 @@ symbol; it fixed two answers and broke two valve types, so it is off by default.
 | Muse Spark Open (Baseten) | symbol typing against the legend, tag reading and re-reading |
 
 **Muse Code** (Meta's coding agent CLI, model `muse-spark-1.3-contributor`) wrote the first draft of
-`tests/test_codes.py` and `tests/test_routes.py`, the unit tests for the legend-grammar and
-pipe-routing modules. It ran headless in a scratch copy of `lazarus/` with shell and web tools
-disabled, so it could read and write files but not run anything. We ran pytest, and all of its tests
-passed against the unmodified code. We added one test of our own (a pipe that does not join the two
-nodes), noted in `tests/test_routes.py`. The rest of the project was written with Claude Code.
+`tests/test_codes.py` and `tests/test_routes.py` (unit tests for the legend-grammar and pipe-routing
+modules) and, in two rounds, `lazarus/dashed.py` with `tests/test_dashed.py`: a deterministic checker
+that decides whether a dashed line really joins two symbols by walking straight, L and Z routes between
+them. It ran headless in a scratch copy of `lazarus/` with shell and web tools disabled, so it could
+read and write files but not run anything; we ran pytest and measured the checker, and used its output
+unmodified. On the labelled sheets it accepts 16 of 35 true dashed links and none of 90 unlinked
+pairs when given the true symbol boxes. Its limit is that it only models direct routes, so it
+confirms 7 of the 19 dashed links the pipeline finds, all of them right. We added one test of our own
+to `tests/test_routes.py` (noted there). The rest of the project, including the gap-closing trace
+that finds the dashed links, was written with Claude Code.
 
 Meta API spend for the whole project so far: about $8 of the $150 credit. Every call is cached on
 disk and logged to a spend ledger, with a hard stop (`SPEND_GUARD_USD`).
@@ -137,7 +165,8 @@ scripts/            benchmarks and experiments (run_sheet, real_test, connection
 demo/               static page (vanilla JS + SVG) over exported graphs
 data/labels/        hand-labelled connections used by connection_eval
 data/real/          public-domain real test scans and their sources
-tests/              simulation tests; legend-grammar and pipe-route tests (drafted by Muse Code)
+tests/              simulation and signal-link tests; legend-grammar, pipe-route and
+                    dashed-checker tests (drafted by Muse Code)
 ```
 
 ## Data and licences
@@ -153,8 +182,11 @@ tests/              simulation tests; legend-grammar and pipe-route tests (draft
 
 ## Limitations
 
-- Connection graph quality drops on dense or hand-drawn scans (see above).
-- Dashed signal lines are mostly not recovered; ISA instrument-loop connections are therefore missed.
+- Connection graph quality drops on dense or hand-drawn scans (see above), and the dashed-link pass is
+  not run on them.
+- Dashed links: 19 of 35 recovered, 9 wrong ones on the same tiles, only 7 pixel-verified; the rest
+  are marked inferred. The gap size is tuned on the benchmark's dash pitch and is untested on other
+  drawings. Dashed links are not used by the isolation simulation.
 - Re-inspection is bounded (two rounds) and recovers few symbols on the benchmark; most of its value
   today is the triage into "needs a human" versus "open end".
 - The isolation simulation answers connectivity questions only.

@@ -15,6 +15,7 @@ from scripts.sam_prompt_explore import DATA, densest_tile, iou
 
 LABELS = json.load(open(DATA.parent / "labels" / "connections.json"))
 GRAPHS = DATA.parent.parent / (sys.argv[1] if len(sys.argv) > 1 else ".cache/out/graphs")
+SIGNALS = "--signals" in sys.argv          # count dashed signal links (graph["signal_edges"]) as predicted links
 rows = {json.loads(l)["file_name"]: json.loads(l) for l in (DATA / "metadata.jsonl").open()}
 
 
@@ -74,7 +75,8 @@ for name, lab in LABELS.items():
             break
         if k not in g2n and nid not in n2g:
             g2n[k], n2g[nid] = nid, k
-    pred = closure([tuple(e) for e in g["graph"]["edges"]], lambda x: x in sym_ids)
+    pred = closure([tuple(e) for e in g["graph"]["edges"]]
+                   + ([tuple(e) for e in g["graph"].get("signal_edges", [])] if SIGNALS else []), lambda x: x in sym_ids)
     pred_gt = {tuple(sorted((n2g[a], n2g[b]))) for a, b in pred if a in n2g and b in n2g and not ({n2g[a], n2g[b]} & excl)}
     both = {e for e in truth if e[0] in g2n and e[1] in g2n}
     rec = truth & pred_gt

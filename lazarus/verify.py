@@ -88,9 +88,10 @@ def check(graph: Graph, trace: Dict, codes=None) -> List[Finding]:
         out.append(Finding("dangling_end", f"pipe ends in empty space near ({x},{y})", pos=(x, y)))
 
     deg = graph.degree()
+    on_signal = {x for e in graph.signal_edges for x in e}      # an instrument tied in by a dashed line is not isolated
     for n in graph.nodes:
         label = f"{n.kind} {n.tag or n.name}"
-        if deg[n.id] == 0:
+        if deg[n.id] == 0 and n.id not in on_signal:
             out.append(Finding("isolated", f"{label} has no pipe connections", node=n.id, pos=n.center))
         elif n.kind == "valve" and deg[n.id] != 2:
             out.append(Finding("degree", f"{label} has {deg[n.id]} connections (expected 2)", node=n.id, pos=n.center))

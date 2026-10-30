@@ -32,7 +32,8 @@ if "--scale" in args:
 for name in args:
     img = Image.open(ROOT / "data" / "real" / name).convert("RGB")
     t0 = time.time()
-    sr = pipeline.run_sheet(img, pipeline.Context(), scale=scale)
+    # the dashed-link pass is off here: on hand-drawn scans it returns a hairball (1132 links for 135 symbols on omre)
+    sr = pipeline.run_sheet(img, pipeline.Context(signal_links=False), scale=scale)
     res, excl = sr.result, sr.excluded
     img = img.resize(sr.size, Image.LANCZOS) if sr.scale != 1 else img
     print(f"{name}: {sr.scale:g}x -> {img.size}, vessels {sr.vessels}, excluded regions {excl}, "

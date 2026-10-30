@@ -73,7 +73,10 @@ def _contract_close(edges, jpos, n_sym: int, dist: int = 32):
 
 
 def trace(tile_rgb: np.ndarray, boxes: List[Tuple[int, int, int, int]],
-          margin: int = 8, min_len: int = 40, bridge: int = 3, junctions: bool = False) -> Dict:
+          margin: int = 8, min_len: int = 40, bridge: int = 3, junctions: bool = False,
+          axis_gap: int = 0) -> Dict:
+    """`axis_gap` > 0 additionally closes gaps shorter than that many px along the horizontal and vertical
+    axes only, so a dashed line becomes one component. Text merges too, so only use it as a second pass."""
     ink = ink_mask(tile_rgb)
     h, w = ink.shape
     lines = ink.copy()
@@ -83,6 +86,10 @@ def trace(tile_rgb: np.ndarray, boxes: List[Tuple[int, int, int, int]],
     # Close tiny gaps (dashed or broken lines) before labelling.
     k = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * bridge + 1, 2 * bridge + 1))
     closed = cv2.morphologyEx(lines.astype(np.uint8), cv2.MORPH_CLOSE, k) > 0
+    if axis_gap:
+        for shape in ((axis_gap, 1), (1, axis_gap)):
+            ke = cv2.getStructuringElement(cv2.MORPH_RECT, shape)
+            closed |= cv2.morphologyEx(lines.astype(np.uint8), cv2.MORPH_CLOSE, ke) > 0
     labels, n = ndi.label(closed, structure=np.ones((3, 3)))
 
     objs = ndi.find_objects(labels)

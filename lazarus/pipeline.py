@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 from PIL import Image
 
-from . import baseten_client, legend, meta_client, pipes, regions, sheet, verify
+from . import baseten_client, legend, meta_client, pipes, regions, sheet, signals, verify
 from . import classify as classify_mod
 from .classify import crop_symbol
 from .codes import Codes
@@ -29,6 +29,7 @@ class Context:
     kinds: Dict[int, str] = field(default_factory=dict)
     reference: Optional[Image.Image] = None   # legend crop shown to the classifier next to each symbol
     codes: Optional[Codes] = None       # the drawing's own instrument-code vocabulary, read from its legend
+    signal_links: bool = True           # dashed-link pass (signals.py); its gap size is tuned on the benchmark's dash pitch
 
 
 @dataclass
@@ -69,7 +70,11 @@ def _assemble(tile_arr: np.ndarray, items: List[Dict], ctx: Context) -> Tuple[Gr
                           c["tag"], c["confidence"], it["source"]))
     for k, (x, y) in enumerate(trace["junctions"]):
         nodes.append(Node(len(items) + k, (x - 3, y - 3, x + 3, y + 3), 0, "junction", "junction"))
-    return Graph(nodes, [(int(a), int(b)) for a, b in trace["edges"]]), trace
+    graph = Graph(nodes, [(int(a), int(b)) for a, b in trace["edges"]])
+    if ctx.signal_links and len(boxes) > 1:
+        graph.signal_edges, routes = signals.find(tile_arr, boxes, graph.edges)
+        graph.signal_verified, graph.signal_paths = list(routes), list(routes.values())
+    return graph, trace
 
 
 def _iou(a, b):
